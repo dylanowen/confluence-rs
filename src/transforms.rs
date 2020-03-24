@@ -13,7 +13,9 @@ impl FromElement for Space {
     fn from_element(element: Element) -> Result<Space> {
         Ok(Space {
             description: element.get_at_path(&["description"])?.text,
-            home_page: element.get_at_path(&["homePage"]).and_then(|e| e.as_long())?,
+            home_page: element
+                .get_at_path(&["homePage"])
+                .and_then(|e| e.as_long())?,
             key: element.get_at_path(&["key"]).and_then(|e| e.as_string())?,
             name: element.get_at_path(&["name"]).and_then(|e| e.as_string())?,
             space_group: element.get_at_path(&["name"])?.text,
@@ -27,9 +29,15 @@ impl FromElement for Page {
     fn from_element(element: Element) -> Result<Page> {
         Ok(Page {
             id: element.get_at_path(&["id"]).and_then(|e| e.as_long())?,
-            space: element.get_at_path(&["space"]).and_then(|e| e.as_string())?,
-            parent_id: element.get_at_path(&["parentId"]).and_then(|e| e.as_long())?,
-            title: element.get_at_path(&["title"]).and_then(|e| e.as_string())?,
+            space: element
+                .get_at_path(&["space"])
+                .and_then(|e| e.as_string())?,
+            parent_id: element
+                .get_at_path(&["parentId"])
+                .and_then(|e| e.as_long())?,
+            title: element
+                .get_at_path(&["title"])
+                .and_then(|e| e.as_string())?,
             url: element.get_at_path(&["url"]).and_then(|e| e.as_string())?,
             version: element.get_at_path(&["version"]).and_then(|e| e.as_int())?,
             content: element
@@ -64,9 +72,15 @@ impl FromElement for PageSummary {
     fn from_element(element: Element) -> Result<PageSummary> {
         Ok(PageSummary {
             id: element.get_at_path(&["id"]).and_then(|e| e.as_long())?,
-            space: element.get_at_path(&["space"]).and_then(|e| e.as_string())?,
-            parent_id: element.get_at_path(&["parentId"]).and_then(|e| e.as_long())?,
-            title: element.get_at_path(&["title"]).and_then(|e| e.as_string())?,
+            space: element
+                .get_at_path(&["space"])
+                .and_then(|e| e.as_string())?,
+            parent_id: element
+                .get_at_path(&["parentId"])
+                .and_then(|e| e.as_long())?,
+            title: element
+                .get_at_path(&["title"])
+                .and_then(|e| e.as_string())?,
             url: element.get_at_path(&["url"]).and_then(|e| e.as_string())?,
         })
     }

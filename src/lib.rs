@@ -88,7 +88,7 @@ impl Session {
         let response = session.call(
             Method::new("login")
                 .with(Element::node("username").with_text(user))
-                .with(Element::node("password").with_text(pass))
+                .with(Element::node("password").with_text(pass)),
         )?;
 
         let token = match response.body.descend(&["loginReturn"])?.text {
@@ -106,7 +106,7 @@ impl Session {
     /// This is done automatically at the end of Session's lifetime.
     pub fn logout(&self) -> Result<bool> {
         let response = self.call(
-            Method::new("logout").with(Element::node("token").with_text(self.token.clone()))
+            Method::new("logout").with(Element::node("token").with_text(self.token.clone())),
         )?;
 
         Ok(match response.body.descend(&["logoutReturn"])?.text {
@@ -143,7 +143,7 @@ impl Session {
         let response = self.call(
             Method::new("getSpace")
                 .with(Element::node("token").with_text(self.token.clone()))
-                .with(Element::node("spaceKey").with_text(space_key))
+                .with(Element::node("spaceKey").with_text(space_key)),
         )?;
 
         let element = response.body.descend(&["getSpaceReturn"])?;
@@ -170,7 +170,7 @@ impl Session {
             Method::new("getPage")
                 .with(Element::node("token").with_text(self.token.clone()))
                 .with(Element::node("spaceKey").with_text(space_key))
-                .with(Element::node("pageTitle").with_text(page_title))
+                .with(Element::node("pageTitle").with_text(page_title)),
         )?;
 
         let element = response.body.descend(&["getPageReturn"])?;
@@ -196,12 +196,12 @@ impl Session {
         let response = self.call(
             Method::new("getPage")
                 .with(Element::node("token").with_text(self.token.clone()))
-                .with(Element::node("pageId").with_text(page_id.to_string()))
+                .with(Element::node("pageId").with_text(page_id.to_string())),
         )?;
 
         let element = response.body.descend(&["getPageReturn"])?;
 
-      Page::from_element(element)
+        Page::from_element(element)
     }
 
     /**
@@ -288,7 +288,7 @@ impl Session {
         let response = self.call(
             Method::new("storePage")
                 .with(Element::node("token").with_text(self.token.clone()))
-                .with(Element::node("page").with_children(element_items))
+                .with(Element::node("page").with_children(element_items)),
         )?;
 
         let element = response.body.descend(&["storePageReturn"])?;
@@ -336,7 +336,7 @@ impl Session {
             Method::new("updatePage")
                 .with(Element::node("token").with_text(self.token.clone()))
                 .with(Element::node("page").with_children(element_items))
-                .with(Element::node("pageUpdateOptions").with_children(update_options))
+                .with(Element::node("pageUpdateOptions").with_children(update_options)),
         )?;
 
         let element = response.body.descend(&["updatePageReturn"])?;
@@ -362,7 +362,7 @@ impl Session {
         let response = self.call(
             Method::new("getChildren")
                 .with(Element::node("token").with_text(self.token.clone()))
-                .with(Element::node("pageId").with_text(page_id.to_string()))
+                .with(Element::node("pageId").with_text(page_id.to_string())),
         )?;
 
         let element = response.body.descend(&["getChildrenReturn"])?;
