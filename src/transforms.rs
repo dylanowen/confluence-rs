@@ -1,7 +1,8 @@
 use crate::rpser::xml::{BuildElement, EnhancedNode, Error as XMLError};
 use xmltree::XMLNode;
 
-use crate::{Page, PageSummary, Space};
+use crate::server_info::RemoteServerInfo;
+use crate::{AttachmentResponse, Page, PageSummary, Space};
 
 pub trait FromXMLNode {
     fn from_node(node: XMLNode) -> Result<Self, XMLError>
@@ -94,6 +95,81 @@ impl FromXMLNode for PageSummary {
                     .get_at_path(&["title"])
                     .and_then(|e| e.as_string())?,
                 url: element.get_at_path(&["url"]).and_then(|e| e.as_string())?,
+            })
+        } else {
+            Err(XMLError::ExpectedElement { found: node })
+        }
+    }
+}
+
+impl FromXMLNode for RemoteServerInfo {
+    fn from_node(node: XMLNode) -> Result<Self, XMLError> {
+        if let XMLNode::Element(element) = node {
+            Ok(RemoteServerInfo {
+                base_url: element
+                    .get_at_path(&["baseUrl"])
+                    .and_then(|e| e.as_string())
+                    .ok(),
+                build_id: element
+                    .get_at_path(&["buildId"])
+                    .and_then(|e| e.as_string())
+                    .ok(),
+                development_build: element
+                    .get_at_path(&["developmentBuild"])
+                    .and_then(|e| e.as_boolean())?,
+                major_version: element
+                    .get_at_path(&["majorVersion"])
+                    .and_then(|e| e.as_int())?,
+                minor_version: element
+                    .get_at_path(&["minorVersion"])
+                    .and_then(|e| e.as_int())?,
+                patch_level: element
+                    .get_at_path(&["patchLevel"])
+                    .and_then(|e| e.as_int())?,
+            })
+        } else {
+            Err(XMLError::ExpectedElement { found: node })
+        }
+    }
+}
+
+impl FromXMLNode for AttachmentResponse {
+    fn from_node(node: XMLNode) -> Result<Self, XMLError> {
+        if let XMLNode::Element(element) = node {
+            Ok(AttachmentResponse {
+                comment: element
+                    .get_at_path(&["comment"])
+                    .and_then(|e| e.as_string())
+                    .ok(),
+                content_type: element
+                    .get_at_path(&["contentType"])
+                    .and_then(|e| e.as_string())
+                    .ok(),
+                created: element
+                    .get_at_path(&["created"])
+                    .and_then(|e| e.as_datetime())
+                    .ok(),
+                creator: element
+                    .get_at_path(&["creator"])
+                    .and_then(|e| e.as_string())
+                    .ok(),
+                file_name: element
+                    .get_at_path(&["fileName"])
+                    .and_then(|e| e.as_string())
+                    .ok(),
+                file_size: element
+                    .get_at_path(&["fileSize"])
+                    .and_then(|e| e.as_long())?,
+                id: element.get_at_path(&["id"]).and_then(|e| e.as_long())?,
+                page_id: element.get_at_path(&["pageId"]).and_then(|e| e.as_long())?,
+                title: element
+                    .get_at_path(&["title"])
+                    .and_then(|e| e.as_string())
+                    .ok(),
+                url: element
+                    .get_at_path(&["url"])
+                    .and_then(|e| e.as_string())
+                    .ok(),
             })
         } else {
             Err(XMLError::ExpectedElement { found: node })

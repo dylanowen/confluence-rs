@@ -23,22 +23,31 @@ pub mod http;
 pub mod rpser;
 pub mod wsdl;
 
+mod attachment;
 mod page;
+mod server_info;
 mod space;
 mod transforms;
 
+pub use attachment::{AttachmentRequest, AttachmentResponse};
 pub use page::{Page, PageSummary, PageUpdateOptions, UpdatePage};
+pub use server_info::RemoteServerInfo;
 pub use space::Space;
 pub use transforms::FromXMLNode;
 
-use std::io::Error as IoError;
-use std::result;
+use std::io::{Error as IoError, Read};
+use std::{io, result};
 
 use self::http::HttpError;
 use self::rpser::xml::{BuildElement, EnhancedNode};
 use self::rpser::{Method, RpcError};
+use core::mem;
+use mime_guess::MimeGuess;
 use reqwest::Client;
 use std::borrow::Cow;
+use std::ffi::OsStr;
+use std::fs::File;
+use std::path::PathBuf;
 use xmltree::Element;
 
 const V2_API_RPC_PATH: &str = "/rpc/soap-axis/confluenceservice-v2?wsdl";
@@ -388,6 +397,129 @@ impl Session {
         Page::from_node(element).map_err(Into::into)
     }
 
+    /// Deletes a page, returning true if the page was successfully deleted
+    ///
+    /// ```no_run
+    /// # async {
+    /// # let session = confluence::Session::login("https://confluence", "user", "pass").await.unwrap();
+    ///
+    /// session.remove_page(123456).await;
+    ///
+    /// # };
+    /// ```
+    pub async fn remove_page(&self, page_id: i64) -> Result<bool> {
+        let response = self
+            .call(
+                self.method("removePage")
+                    .with(Element::node("pageId").with_text(page_id.to_string())),
+            )
+            .await?;
+
+        match response
+            .body
+            .descend(&["removePageReturn"])?
+            .expect_element()?
+            .get_text()
+        {
+            Some(ref v) if v == "true" => Ok(true),
+            _ => Ok(false),
+        }
+    }
+
+    /// Adds a file as an Attachment
+    ///
+    /// You can either pass in your own `AttachmentRequest` or if you leave it out, the relevant
+    /// info will attempt to be derived from your `PathBuf`
+    ///
+    /// ```no_run
+    /// # use std::path::PathBuf;
+    /// # use futures::future::TryFutureExt;
+    ///
+    /// # async {
+    /// # let session = confluence::Session::login("https://confluence", "user", "pass").await.unwrap();
+    ///
+    /// let path_buf = PathBuf::from("image.png");
+    /// session.add_file(1234, None, &path_buf);
+    /// # };
+    /// ```
+    ///
+    /// will derive:
+    /// * `file_name`: `"image.png"`
+    /// * `content_type`: `mime::IMAGE_PNG`
+    /// * `title`: `None`
+    /// * `comment`: `None`
+    pub async fn add_file<A>(
+        &self,
+        content_id: i64,
+        attachment: A,
+        file_path: &PathBuf,
+    ) -> Result<AttachmentResponse>
+    where
+        A: Into<Option<AttachmentRequest>>,
+    {
+        let file = File::open(file_path)?;
+        let attachment_request = attachment.into().unwrap_or_else(|| {
+            AttachmentRequest::new(
+                file_path.file_name().and_then(OsStr::to_str).unwrap_or(""),
+                MimeGuess::from_path(&file_path).first_or_octet_stream(),
+                None,
+                None,
+            )
+        });
+
+        self.add_attachment(content_id, attachment_request, file)
+            .await
+    }
+
+    /// Add an Attachment for the content
+    ///
+    /// The `content_id` can the be the Page you want to attach the file to.
+    ///
+    /// ```no_run
+    /// # use confluence::AttachmentRequest;
+    /// # use mime_guess::mime;
+    /// # use std::fs::File;
+    ///
+    /// # async {
+    /// # let session = confluence::Session::login("https://confluence", "user", "pass").await.unwrap();
+    ///
+    /// if let Ok(file) = File::open("file") {
+    ///     session.add_attachment(
+    ///         123456,
+    ///         AttachmentRequest::new("File Name", mime::IMAGE_PNG, "Title".to_string(), "New image".to_string()),
+    ///         &file,
+    ///     );
+    /// }
+    ///
+    /// # };
+    /// ```
+    pub async fn add_attachment<R: Read>(
+        &self,
+        content_id: i64,
+        attachment: AttachmentRequest,
+        mut data_reader: R,
+    ) -> Result<AttachmentResponse> {
+        let mut written_data = vec![];
+        let mut writer = base64::write::EncoderWriter::new(&mut written_data, base64::STANDARD);
+        io::copy(&mut data_reader, &mut writer)?;
+        mem::drop(writer);
+
+        let data = String::from_utf8(written_data).expect("Base64 should always be valid UTF-8");
+
+        let response = self
+            .call(
+                Method::new("addAttachment")
+                    .with(Element::node("token").with_text(self.token()))
+                    .with(Element::node("contentId").with_text(content_id.to_string()))
+                    .with(attachment.into())
+                    .with(Element::node("attachmentData").with_text(data)),
+            )
+            .await?;
+
+        AttachmentResponse::from_node(response.body.descend(&["addAttachmentReturn"])?)
+            .map_err(Into::into)
+    }
+
     /**
     Returns all the direct children of this page.
 
@@ -421,6 +553,24 @@ impl Session {
         }
 
         Ok(summaries)
+    }
+
+    /// Gets information about the Confluence server this session is connected to
+    ///
+    /// ```no_run
+    /// # async {
+    /// # let session = confluence::Session::login("https://confluence", "user", "pass").await.unwrap();
+    ///
+    /// session.get_server_info().await;
+    ///
+    /// # };
+    /// ```
+    pub async fn get_server_info(&self) -> Result<RemoteServerInfo> {
+        let response = self.call(self.method("getServerInfo")).await?;
+
+        let node = response.body.descend(&["getServerInfoReturn"])?;
+
+        RemoteServerInfo::from_node(node).map_err(Into::into)
     }
 
     /// builds a new method with the token from the session already set
