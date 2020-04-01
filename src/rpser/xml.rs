@@ -10,6 +10,10 @@ use xmltree::{Element, XMLNode};
 use std::borrow::Cow;
 use std::str::FromStr;
 
+static CDATA_END_FRONT: &str = "]]";
+static CDATA_END_BACK: &str = ">";
+static CDATA_END: &str = "]]>";
+
 #[derive(Debug, PartialEq)]
 pub enum Error {
     /// Element was expected at path, but was not found.
@@ -136,7 +140,24 @@ impl BuildElement for Element {
     where
         S: Into<String>,
     {
-        self.children.push(XMLNode::Text(text.into()));
+        // We need to make sure that if we have any CData end tags inside of our text that we
+        // correctly escape them
+        let string = text.into();
+        let chunks: Vec<&str> = string.split(CDATA_END).collect::<Vec<_>>();
+
+        if chunks.len() > 1 {
+            let mut children = vec![chunks[0].to_owned() + CDATA_END_FRONT];
+            for chunk in chunks.iter().take(chunks.len() - 2).skip(1) {
+                children.push(CDATA_END_BACK.to_owned() + chunk + CDATA_END_FRONT)
+            }
+            children.push(CDATA_END_BACK.to_owned() + chunks[chunks.len() - 1]);
+
+            self.children = children.into_iter().map(XMLNode::CData).collect()
+        } else {
+            // if we didn't have an CData tags we can just use Text and it'll be escaped
+            self.children = vec![XMLNode::Text(chunks[0].into())]
+        }
+
         self
     }
 
@@ -343,4 +364,42 @@ fn get_typed_string(element: &Element, value_type: &str) -> Result<String, Error
             }
         },
     )
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn with_text_doesnt_escape_simple_text() {
+        let element = Element::node("test").with_text("simple_text");
+
+        assert_eq!(vec![XMLNode::Text("simple_text".into()),], element.children)
+    }
+
+    #[test]
+    fn with_text_supports_cdata() {
+        let element = Element::node("test").with_text("text<![CDATA[cdata]]>text");
+
+        assert_eq!(
+            vec![
+                XMLNode::CData("text<![CDATA[cdata]]".into()),
+                XMLNode::CData(">text".into())
+            ],
+            element.children
+        )
+    }
+
+    #[test]
+    fn with_text_supports_cdata_end_tags() {
+        let element = Element::node("test").with_text("text]]>text");
+
+        assert_eq!(
+            vec![
+                XMLNode::CData("text]]".into()),
+                XMLNode::CData(">text".into())
+            ],
+            element.children
+        )
+    }
 }
