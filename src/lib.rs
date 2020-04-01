@@ -61,11 +61,13 @@ impl Session {
     ## Example
 
     ```no_run
+    # async {
     let session = confluence::Session::login(
         "https://confluence",
         "user",
         "pass"
-    ).unwrap();
+    ).await.unwrap();
+    # };
     ```
     */
     pub async fn login(url: &str, user: &str, pass: &str) -> Result<Session> {
@@ -147,12 +149,14 @@ impl Session {
     ## Example
 
     ```no_run
-    # let session = confluence::Session::login("https://confluence", "user", "pass").unwrap();
+    # async {
+    # let session = confluence::Session::login("https://confluence", "user", "pass").await.unwrap();
     println!("Space: {:#?}",
         session.get_space(
             "SomeSpaceKey"
-        )
+        ).await
     );
+    # };
     ```
     */
     pub async fn get_space(&self, space_key: &str) -> Result<Space> {
@@ -175,12 +179,14 @@ impl Session {
     ## Example
 
     ```no_run
-    # let session = confluence::Session::login("https://confluence", "user", "pass").unwrap();
+    # async {
+    # let session = confluence::Session::login("https://confluence", "user", "pass").await.unwrap();
     println!("Page: {:#?}",
         session.get_page_by_title(
             "SomeSpaceKey", "Page Title"
-        )
+        ).await
     );
+    # };
     ```
     */
     pub async fn get_page_by_title(&self, space_key: &str, page_title: &str) -> Result<Page> {
@@ -204,12 +210,14 @@ impl Session {
     ## Example
 
     ```no_run
-    # let session = confluence::Session::login("https://confluence", "user", "pass").unwrap();
+    # async {
+    # let session = confluence::Session::login("https://confluence", "user", "pass").await.unwrap();
     println!("Page: {:#?}",
         session.get_page_by_id(
             123456
-        )
+        ).await
     );
+    # };
     ```
     */
     pub async fn get_page_by_id(&self, page_id: i64) -> Result<Page> {
@@ -247,7 +255,8 @@ impl Session {
     ```no_run
     use confluence::UpdatePage;
 
-    # let session = confluence::Session::login("https://confluence", "user", "pass").unwrap();
+    # async {
+    # let session = confluence::Session::login("https://confluence", "user", "pass").await.unwrap();
     session.store_page(
         UpdatePage::with_create_fields(
             None,
@@ -255,7 +264,8 @@ impl Session {
             "Page Title",
             "<b>Works</b>"
         )
-    );
+    ).await;
+    # };
     ```
 
     # For updating
@@ -277,15 +287,16 @@ impl Session {
 
     ```no_run
     use confluence::UpdatePage;
-
-    # let session = confluence::Session::login("https://confluence", "user", "pass").unwrap();
+    # async {
+    # let session = confluence::Session::login("https://confluence", "user", "pass").await.unwrap();
     let mut page = session.get_page_by_title(
         "SomeSpaceKey", "Page Title"
-    ).unwrap();
+    ).await.unwrap();
 
     page.title = "New Page Title".into();
 
-    session.store_page(page.into());
+    session.store_page(page.into()).await;
+    # };
     ```
     */
     pub async fn store_page(&self, page: UpdatePage) -> Result<Page> {
@@ -376,12 +387,14 @@ impl Session {
     ## Example
 
     ```no_run
-    # let session = confluence::Session::login("https://confluence", "user", "pass").unwrap();
+    # async {
+    # let session = confluence::Session::login("https://confluence", "user", "pass").await.unwrap();
     println!("Page Summaries: {:#?}",
         session.get_children(
             123456
-        )
+        ).await
     );
+    # };
     ```
     */
     pub async fn get_children(&self, page_id: i64) -> Result<Vec<PageSummary>> {
