@@ -1,17 +1,28 @@
 //! Helper trait to deal with XML Element tree.
 
-use chrono::offset::Utc;
-use chrono::{DateTime, ParseError};
 use std::collections::HashMap;
 use std::num::ParseIntError;
-use xmltree::Element;
+
+use chrono::offset::Utc;
+use chrono::{DateTime, ParseError};
+use xmltree::{Element, XMLNode};
+
+use std::borrow::Cow;
+use std::str::FromStr;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
     /// Element was expected at path, but was not found.
-    NotFoundAtPath { path: Vec<String> },
+    NotFoundAtPath {
+        path: Vec<String>,
+    },
     /// Expected element to contain children.
-    ExpectedNotEmpty { parent: String },
+    ExpectedNotEmpty {
+        parent: String,
+    },
+    ExpectedElement {
+        found: XMLNode,
+    },
     /// Expected to find element with specified type.
     ExpectedElementWithType {
         name: String,
@@ -19,9 +30,15 @@ pub enum Error {
         given: Option<String>,
     },
     /// Can't parse received element.
-    ParseIntError { name: String, inner: ParseIntError },
+    ParseIntError {
+        name: String,
+        inner: ParseIntError,
+    },
     /// Can't parse received element.
-    ParseDateTimeError { name: String, inner: ParseError },
+    ParseDateTimeError {
+        name: String,
+        inner: ParseError,
+    },
 }
 
 /// Helper trait for building `xmltree::Element`.
@@ -35,7 +52,7 @@ pub enum Error {
 /// extern crate xmltree;
 /// extern crate confluence;
 ///
-/// use xmltree::Element;
+/// use xmltree::{XMLNode, Element};
 /// use confluence::rpser::xml::BuildElement;
 ///
 /// fn main() {
@@ -50,8 +67,6 @@ pub enum Error {
 /// }
 /// ```
 pub trait BuildElement {
-    /// The missing `clone` implementation for `xmltree::Element`.
-    fn cloned(&self) -> Self;
     /// Create empty node.
     fn node<S>(name: S) -> Self
     where
@@ -85,43 +100,16 @@ pub trait BuildElement {
     fn to_string(&self) -> String;
 
     /// Descend into specified child element, destroying the parent.
-    fn descend(self, path: &[&str]) -> Result<Element, Error>;
+    fn descend(self, path: &[&str]) -> Result<XMLNode, Error>;
 
     /// Descend into first child element, destroying the parent.
-    fn descend_first(self) -> Result<Element, Error>;
+    fn descend_first(self) -> Result<XMLNode, Error>;
 
     /// Get clone of child element at path.
-    fn get_at_path(&self, path: &[&str]) -> Result<Element, Error>;
-
-    /// Extract the value of `long` type from the text.
-    fn as_long(&self) -> Result<i64, Error>;
-
-    /// Extract the value of `int` type from the text.
-    fn as_int(&self) -> Result<i32, Error>;
-
-    /// Extract the value of `boolean` type from the text.
-    fn as_boolean(&self) -> Result<bool, Error>;
-
-    /// Extract the value of `string` type from the text.
-    fn as_string(&self) -> Result<String, Error>;
-
-    /// Extract the value of `DateTime` type from the text.
-    fn as_datetime(&self) -> Result<DateTime<Utc>, Error>;
+    fn get_at_path(&self, path: &[&str]) -> Result<XMLNode, Error>;
 }
 
 impl BuildElement for Element {
-    fn cloned(&self) -> Self {
-        Element {
-            name: self.name.clone(),
-            attributes: self.attributes.clone(),
-            children: self.children.iter().map(|child| child.cloned()).collect(),
-            text: self.text.clone(),
-            namespace: self.namespace.clone(),
-            namespaces: self.namespaces.clone(),
-            prefix: self.prefix.clone(),
-        }
-    }
-
     fn node<S>(name: S) -> Self
     where
         S: Into<String>,
@@ -130,7 +118,6 @@ impl BuildElement for Element {
             name: name.into(),
             attributes: HashMap::new(),
             children: Vec::new(),
-            text: None,
             namespace: None,
             namespaces: None,
             prefix: None,
@@ -149,7 +136,7 @@ impl BuildElement for Element {
     where
         S: Into<String>,
     {
-        self.text = Some(text.into());
+        self.children.push(XMLNode::Text(text.into()));
         self
     }
 
@@ -163,7 +150,7 @@ impl BuildElement for Element {
     }
 
     fn with_child(mut self, child: Self) -> Self {
-        self.children.push(child);
+        self.children.push(XMLNode::Element(child));
         self
     }
 
@@ -171,7 +158,8 @@ impl BuildElement for Element {
     where
         I: IntoIterator<Item = Self>,
     {
-        self.children.extend(children);
+        self.children
+            .extend(children.into_iter().map(XMLNode::Element));
         self
     }
 
@@ -180,7 +168,7 @@ impl BuildElement for Element {
         I: Iterator<Item = &'r Self>,
     {
         for child in children {
-            self.children.push(child.cloned());
+            self.children.push(XMLNode::Element(child.clone()));
         }
         self
     }
@@ -192,22 +180,24 @@ impl BuildElement for Element {
         String::from_utf8_lossy(&xml).into_owned()
     }
 
-    fn descend(self, path: &[&str]) -> Result<Element, Error> {
+    fn descend(self, path: &[&str]) -> Result<XMLNode, Error> {
         if path.is_empty() {
-            Ok(self)
+            Ok(XMLNode::Element(self))
         } else {
-            for child in self.children {
-                if child.name == path[0] {
-                    return match child.descend(&path[1..]) {
-                        Ok(element) => Ok(element),
-                        Err(Error::NotFoundAtPath {
-                            path: mut error_path,
-                        }) => {
-                            error_path.insert(0, path[0].into());
-                            Err(Error::NotFoundAtPath { path: error_path })
-                        }
-                        _ => unreachable!("descend should only return NotFoundAtPath error"),
-                    };
+            for node in self.children {
+                if let XMLNode::Element(child) = node {
+                    if child.name == path[0] {
+                        return match child.descend(&path[1..]) {
+                            Ok(element) => Ok(element),
+                            Err(Error::NotFoundAtPath {
+                                path: mut error_path,
+                            }) => {
+                                error_path.insert(0, path[0].into());
+                                Err(Error::NotFoundAtPath { path: error_path })
+                            }
+                            _ => unreachable!("descend should only return NotFoundAtPath error"),
+                        };
+                    }
                 }
             }
             Err(Error::NotFoundAtPath {
@@ -216,7 +206,7 @@ impl BuildElement for Element {
         }
     }
 
-    fn descend_first(mut self) -> Result<Element, Error> {
+    fn descend_first(mut self) -> Result<XMLNode, Error> {
         if self.children.is_empty() {
             Err(Error::ExpectedNotEmpty { parent: self.name })
         } else {
@@ -224,22 +214,24 @@ impl BuildElement for Element {
         }
     }
 
-    fn get_at_path(&self, path: &[&str]) -> Result<Element, Error> {
+    fn get_at_path(&self, path: &[&str]) -> Result<XMLNode, Error> {
         if path.is_empty() {
-            Ok(self.cloned())
+            Ok(XMLNode::Element(self.clone()))
         } else {
             for child in &self.children {
-                if child.name == path[0] {
-                    return match child.get_at_path(&path[1..]) {
-                        Ok(element) => Ok(element),
-                        Err(Error::NotFoundAtPath {
-                            path: mut error_path,
-                        }) => {
-                            error_path.insert(0, path[0].into());
-                            Err(Error::NotFoundAtPath { path: error_path })
-                        }
-                        _ => unreachable!("descend should only return NotFoundAtPath error"),
-                    };
+                if let XMLNode::Element(element) = child {
+                    if element.name == path[0] {
+                        return match element.get_at_path(&path[1..]) {
+                            Ok(element) => Ok(element),
+                            Err(Error::NotFoundAtPath {
+                                path: mut error_path,
+                            }) => {
+                                error_path.insert(0, path[0].into());
+                                Err(Error::NotFoundAtPath { path: error_path })
+                            }
+                            _ => unreachable!("descend should only return NotFoundAtPath error"),
+                        };
+                    }
                 }
             }
             Err(Error::NotFoundAtPath {
@@ -247,65 +239,108 @@ impl BuildElement for Element {
             })
         }
     }
+}
 
-    fn as_int(&self) -> Result<i32, Error> {
-        let text = get_typed_string(self, "int")?;
-        Ok(match text.parse() {
-            Ok(ref value) => *value,
-            Err(e) => {
-                return Err(Error::ParseIntError {
-                    name: self.name.clone(),
-                    inner: e,
-                });
-            }
-        })
+pub trait EnhancedNode {
+    /// If our Node is an Element get it as one, otherwise return an Error
+    fn into_element(self) -> Result<Element, Error>;
+
+    /// If our Node is an Element get a reference to it as one, otherwise return an Error
+    fn expect_element(&self) -> Result<&Element, Error>;
+
+    /// Extract the value of `long` type from the text.
+    fn as_long(&self) -> Result<i64, Error>;
+
+    /// Extract the value of `int` type from the text.
+    fn as_int(&self) -> Result<i32, Error>;
+
+    /// Extract the value of `boolean` type from the text.
+    fn as_boolean(&self) -> Result<bool, Error>;
+
+    /// Extract the value of `string` type from the text.
+    fn as_string(&self) -> Result<String, Error>;
+
+    /// Extract the value of `DateTime` type from the text.
+    fn as_datetime(&self) -> Result<DateTime<Utc>, Error>;
+}
+
+impl EnhancedNode for XMLNode {
+    fn into_element(self) -> Result<Element, Error> {
+        match self {
+            XMLNode::Element(element) => Ok(element),
+            _ => Err(Error::ExpectedElement {
+                found: self.clone(),
+            }),
+        }
+    }
+
+    fn expect_element(&self) -> Result<&Element, Error> {
+        match self {
+            XMLNode::Element(element) => Ok(element),
+            _ => Err(Error::ExpectedElement {
+                found: self.clone(),
+            }),
+        }
     }
 
     fn as_long(&self) -> Result<i64, Error> {
-        let text = get_typed_string(self, "long")?;
-        Ok(match text.parse() {
-            Ok(ref value) => *value,
-            Err(e) => {
-                return Err(Error::ParseIntError {
-                    name: self.name.clone(),
-                    inner: e,
-                });
-            }
+        parse(self, "long", |name, inner| Error::ParseIntError {
+            name,
+            inner,
         })
     }
 
-    fn as_string(&self) -> Result<String, Error> {
-        get_typed_string(self, "string")
-    }
-
-    fn as_datetime(&self) -> Result<DateTime<Utc>, Error> {
-        let text = get_typed_string(self, "dateTime")?;
-        Ok(match text.parse::<DateTime<Utc>>() {
-            Ok(ref value) => *value,
-            Err(e) => {
-                return Err(Error::ParseDateTimeError {
-                    name: self.name.clone(),
-                    inner: e,
-                });
-            }
+    fn as_int(&self) -> Result<i32, Error> {
+        parse(self, "int", |name, inner| Error::ParseIntError {
+            name,
+            inner,
         })
     }
 
     fn as_boolean(&self) -> Result<bool, Error> {
-        let text = get_typed_string(self, "boolean")?;
+        let element = self.expect_element()?;
+        let text = get_typed_string(element, "boolean")?;
         Ok(text == "true")
+    }
+
+    fn as_string(&self) -> Result<String, Error> {
+        let element = self.expect_element()?;
+        get_typed_string(element, "string")
+    }
+
+    fn as_datetime(&self) -> Result<DateTime<Utc>, Error> {
+        parse(self, "dateTime", |name, inner| Error::ParseDateTimeError {
+            name,
+            inner,
+        })
     }
 }
 
+fn parse<F: FromStr, E>(node: &XMLNode, value_type: &str, err_mapper: E) -> Result<F, Error>
+where
+    E: FnOnce(String, F::Err) -> Error,
+{
+    let element = node.expect_element()?;
+    let text = get_typed_string(element, value_type)?;
+
+    text.parse()
+        .map_err(|e| err_mapper(element.name.clone(), e))
+}
+
 fn get_typed_string(element: &Element, value_type: &str) -> Result<String, Error> {
-    Ok(match (element.attributes.get("type"), &element.text) {
-        (Some(value), &Some(ref text)) if value.ends_with(value_type) => text.clone(),
-        (other_type, _) => {
-            return Err(Error::ExpectedElementWithType {
-                name: element.name.clone(),
-                expected_type: ["*:", value_type].concat(),
-                given: other_type.cloned(),
-            });
-        }
-    })
+    Ok(
+        match (
+            element.attributes.get("type"),
+            element.get_text().map(Cow::into_owned),
+        ) {
+            (Some(value), Some(text)) if value.ends_with(value_type) => text,
+            (other_type, _) => {
+                return Err(Error::ExpectedElementWithType {
+                    name: element.name.clone(),
+                    expected_type: ["*:", value_type].concat(),
+                    given: other_type.cloned(),
+                });
+            }
+        },
+    )
 }

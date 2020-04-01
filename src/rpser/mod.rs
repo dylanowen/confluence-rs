@@ -6,6 +6,8 @@ use std::fmt;
 use std::result;
 
 use self::xml::BuildElement;
+use self::xml::EnhancedNode;
+use std::borrow::Cow;
 use xmltree::Element;
 
 /// XML method representation.
@@ -66,20 +68,24 @@ impl Response {
         if element.name != "Envelope" {
             return Err(RpcError::UnexpectedElement { tag: element.name });
         }
-        element = element.descend(&["Body"])?;
-        element = element.descend_first()?;
+        element = element.descend(&["Body"])?.into_element()?;
+        element = element.descend_first()?.into_element()?;
 
         if element.name == "Fault" {
             return Err(RpcError::Fault {
                 fault_code: element
                     .get_at_path(&["faultcode"])?
-                    .text
+                    .expect_element()?
+                    .get_text()
+                    .map(Cow::into_owned)
                     .unwrap_or_default(),
                 fault_string: element
                     .get_at_path(&["faultstring"])?
-                    .text
+                    .expect_element()?
+                    .get_text()
+                    .map(Cow::into_owned)
                     .unwrap_or_default(),
-                fault_detail: Box::new(element.get_at_path(&["detail"])?),
+                fault_detail: Box::new(element.get_at_path(&["detail"])?.into_element()?),
             });
         }
 
@@ -179,9 +185,14 @@ mod test {
         match Response::from_xml(ok_response) {
             Ok(response) => {
                 assert_eq!(response.body.name, "loginResponse");
-                let return_element = response.body.descend_first().unwrap();
+                let return_element = response
+                    .body
+                    .descend_first()
+                    .unwrap()
+                    .into_element()
+                    .unwrap();
                 assert_eq!(return_element.name, "loginReturn");
-                assert_eq!(return_element.text, Some("a3a8ecc6d5".into()));
+                assert_eq!(return_element.get_text(), Some("a3a8ecc6d5".into()));
             }
             other => panic!(
                 "expected to receive fault in this test, received {:?}",

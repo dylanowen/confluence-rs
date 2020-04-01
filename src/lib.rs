@@ -29,14 +29,15 @@ mod transforms;
 
 pub use page::{Page, PageSummary, PageUpdateOptions, UpdatePage};
 pub use space::Space;
-pub use transforms::FromElement;
+pub use transforms::FromXMLNode;
 
 use std::io::Error as IoError;
 use std::result;
 
 use self::http::HttpError;
-use self::rpser::xml::BuildElement;
+use self::rpser::xml::{BuildElement, EnhancedNode};
 use self::rpser::{Method, RpcError};
+use std::borrow::Cow;
 use xmltree::Element;
 
 const V2_API_RPC_PATH: &str = "/rpc/soap-axis/confluenceservice-v2?wsdl";
@@ -91,7 +92,13 @@ impl Session {
                 .with(Element::node("password").with_text(pass)),
         )?;
 
-        let token = match response.body.descend(&["loginReturn"])?.text {
+        let token = match response
+            .body
+            .descend(&["loginReturn"])?
+            .expect_element()?
+            .get_text()
+            .map(Cow::into_owned)
+        {
             Some(token) => token,
             _ => return Err(Error::ReceivedNoLoginToken),
         };
@@ -109,16 +116,23 @@ impl Session {
             Method::new("logout").with(Element::node("token").with_text(self.token.clone())),
         )?;
 
-        Ok(match response.body.descend(&["logoutReturn"])?.text {
-            Some(ref v) if v == "true" => {
-                debug!("logged out successfully");
-                true
-            }
-            _ => {
-                debug!("log out failed (maybe expired token, maybe not loged in)");
-                false
-            }
-        })
+        Ok(
+            match response
+                .body
+                .descend(&["logoutReturn"])?
+                .expect_element()?
+                .get_text()
+            {
+                Some(ref v) if v == "true" => {
+                    debug!("logged out successfully");
+                    true
+                }
+                _ => {
+                    debug!("log out failed (maybe expired token, maybe not logged in)");
+                    false
+                }
+            },
+        )
     }
 
     /**
@@ -148,7 +162,7 @@ impl Session {
 
         let element = response.body.descend(&["getSpaceReturn"])?;
 
-        Space::from_element(element)
+        Space::from_node(element).map_err(Into::into)
     }
 
     /**
@@ -175,7 +189,7 @@ impl Session {
 
         let element = response.body.descend(&["getPageReturn"])?;
 
-        Page::from_element(element)
+        Page::from_node(element).map_err(Into::into)
     }
 
     /**
@@ -201,7 +215,7 @@ impl Session {
 
         let element = response.body.descend(&["getPageReturn"])?;
 
-        Page::from_element(element)
+        Page::from_node(element).map_err(Into::into)
     }
 
     /**
@@ -293,7 +307,7 @@ impl Session {
 
         let element = response.body.descend(&["storePageReturn"])?;
 
-        Page::from_element(element)
+        Page::from_node(element).map_err(Into::into)
     }
 
     /**
@@ -341,7 +355,7 @@ impl Session {
 
         let element = response.body.descend(&["updatePageReturn"])?;
 
-        Page::from_element(element)
+        Page::from_node(element).map_err(Into::into)
     }
 
     /**
@@ -365,12 +379,12 @@ impl Session {
                 .with(Element::node("pageId").with_text(page_id.to_string())),
         )?;
 
-        let element = response.body.descend(&["getChildrenReturn"])?;
+        let node = response.body.descend(&["getChildrenReturn"])?;
 
         let mut summaries = vec![];
 
-        for element in element.children {
-            summaries.push(PageSummary::from_element(element)?);
+        for element in node.into_element()?.children {
+            summaries.push(PageSummary::from_node(element)?);
         }
 
         Ok(summaries)
