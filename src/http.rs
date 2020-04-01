@@ -1,6 +1,7 @@
 //! HTTP helpers.
 
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE};
+use reqwest::Client;
 pub use reqwest::Error as HttpError;
 pub use reqwest::StatusCode;
 use std::result;
@@ -22,14 +23,14 @@ pub async fn get(url: &str) -> Result<Response> {
 }
 
 /// Perform a SOAP action to specified URL.
-pub async fn soap_action(url: &str, action: &str, xml: &str) -> Result<Response> {
+pub async fn soap_action(url: &str, action: &str, xml: &str, client: &Client) -> Result<Response> {
     let soap_action = HeaderName::from_bytes(b"SOAPAction").unwrap();
     let soap_value = HeaderValue::from_str(action).unwrap();
     let mut hmap = HeaderMap::new();
     hmap.insert(CONTENT_TYPE, "text/xml; charset=utf-8".parse().unwrap());
     hmap.insert(soap_action, soap_value);
 
-    let client = reqwest::Client::new();
+    //let client = reqwest::Client::new();
     let response = client
         .post(url)
         .headers(hmap)

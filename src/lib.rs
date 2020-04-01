@@ -37,6 +37,7 @@ use std::result;
 use self::http::HttpError;
 use self::rpser::xml::{BuildElement, EnhancedNode};
 use self::rpser::{Method, RpcError};
+use reqwest::Client;
 use std::borrow::Cow;
 use xmltree::Element;
 
@@ -46,11 +47,12 @@ const V2_API_RPC_PATH: &str = "/rpc/soap-axis/confluenceservice-v2?wsdl";
 pub struct Session {
     wsdl: wsdl::Wsdl,
     token: String,
+    client: Client,
 }
 
 impl Drop for Session {
     fn drop(&mut self) {
-        futures::executor::block_on(self.logout()).unwrap();
+        futures::executor::block_on(self.internal_logout()).unwrap();
     }
 }
 
@@ -73,6 +75,8 @@ impl Session {
     pub async fn login(url: &str, user: &str, pass: &str) -> Result<Session> {
         debug!("logging in at url {:?} with user {:?}", url, user);
 
+        let client = Client::new();
+
         let url = if url.ends_with('/') {
             &url[..url.len() - 1]
         } else {
@@ -83,18 +87,15 @@ impl Session {
         debug!("getting wsdl from url {:?}", wsdl_url);
 
         let wsdl = wsdl::fetch(&wsdl_url).await?;
-        let mut session = Session {
-            wsdl,
-            token: String::new(),
-        };
 
-        let response = session
-            .call(
-                Method::new("login")
-                    .with(Element::node("username").with_text(user))
-                    .with(Element::node("password").with_text(pass)),
-            )
-            .await?;
+        let response = Session::internal_call(
+            Method::new("login")
+                .with(Element::node("username").with_text(user))
+                .with(Element::node("password").with_text(pass)),
+            &wsdl,
+            &client,
+        )
+        .await?;
 
         let token = match response
             .body
@@ -107,20 +108,28 @@ impl Session {
             _ => return Err(Error::ReceivedNoLoginToken),
         };
 
-        session.token = token;
-
-        Ok(session)
+        Ok(Session {
+            wsdl,
+            token,
+            client,
+        })
     }
 
     /// Explicitly log out out of confluence.
     ///
     /// This is done automatically at the end of Session's lifetime.
-    pub async fn logout(&self) -> Result<bool> {
-        let response = self
-            .call(Method::new("logout").with(Element::node("token").with_text(self.token.clone())))
-            .await?;
+    pub async fn logout(mut self) -> Result<bool> {
+        // We want to know the result of logging out. However we also want to logout when dropping
+        // our memory AND we want to make Self::logout a dropping operation. To do all of these
+        // things we have to leverage the private method internal_logout which checks whether we've
+        // already logged out before running
+        self.internal_logout().await
+    }
 
-        Ok(
+    async fn internal_logout(&mut self) -> Result<bool> {
+        if !self.token.is_empty() {
+            let response = self.call(self.method("logout")).await?;
+
             match response
                 .body
                 .descend(&["logoutReturn"])?
@@ -129,14 +138,17 @@ impl Session {
             {
                 Some(ref v) if v == "true" => {
                     debug!("logged out successfully");
-                    true
+                    Ok(true)
                 }
                 _ => {
                     debug!("log out failed (maybe expired token, maybe not logged in)");
-                    false
+                    Ok(false)
                 }
-            },
-        )
+            }
+        } else {
+            // we've already logged out so continue on
+            Ok(false)
+        }
     }
 
     /**
@@ -162,8 +174,7 @@ impl Session {
     pub async fn get_space(&self, space_key: &str) -> Result<Space> {
         let response = self
             .call(
-                Method::new("getSpace")
-                    .with(Element::node("token").with_text(self.token.clone()))
+                self.method("getSpace")
                     .with(Element::node("spaceKey").with_text(space_key)),
             )
             .await?;
@@ -192,8 +203,7 @@ impl Session {
     pub async fn get_page_by_title(&self, space_key: &str, page_title: &str) -> Result<Page> {
         let response = self
             .call(
-                Method::new("getPage")
-                    .with(Element::node("token").with_text(self.token.clone()))
+                self.method("getPage")
                     .with(Element::node("spaceKey").with_text(space_key))
                     .with(Element::node("pageTitle").with_text(page_title)),
             )
@@ -223,8 +233,7 @@ impl Session {
     pub async fn get_page_by_id(&self, page_id: i64) -> Result<Page> {
         let response = self
             .call(
-                Method::new("getPage")
-                    .with(Element::node("token").with_text(self.token.clone()))
+                self.method("getPage")
                     .with(Element::node("pageId").with_text(page_id.to_string())),
             )
             .await?;
@@ -320,8 +329,7 @@ impl Session {
 
         let response = self
             .call(
-                Method::new("storePage")
-                    .with(Element::node("token").with_text(self.token.clone()))
+                self.method("storePage")
                     .with(Element::node("page").with_children(element_items)),
             )
             .await?;
@@ -369,8 +377,7 @@ impl Session {
 
         let response = self
             .call(
-                Method::new("updatePage")
-                    .with(Element::node("token").with_text(self.token.clone()))
+                self.method("updatePage")
                     .with(Element::node("page").with_children(element_items))
                     .with(Element::node("pageUpdateOptions").with_children(update_options)),
             )
@@ -400,8 +407,7 @@ impl Session {
     pub async fn get_children(&self, page_id: i64) -> Result<Vec<PageSummary>> {
         let response = self
             .call(
-                Method::new("getChildren")
-                    .with(Element::node("token").with_text(self.token.clone()))
+                self.method("getChildren")
                     .with(Element::node("pageId").with_text(page_id.to_string())),
             )
             .await?;
@@ -415,6 +421,16 @@ impl Session {
         }
 
         Ok(summaries)
+    }
+
+    /// builds a new method with the token from the session already set
+    pub fn method(&self, name: &str) -> Method {
+        Method::new(name).with(Element::node("token").with_text(self.token.clone()))
+    }
+
+    /// Get the token for our session
+    pub fn token(&self) -> String {
+        self.token.clone()
     }
 
     /// Call a custom method on this session.
@@ -436,7 +452,15 @@ impl Session {
     ///
     /// Pull requests are welcome!
     pub async fn call(&self, method: rpser::Method) -> Result<rpser::Response> {
-        let url = match self.wsdl.operations.get(&method.name) {
+        Self::internal_call(method, &self.wsdl, &self.client).await
+    }
+
+    async fn internal_call(
+        method: rpser::Method,
+        wsdl: &wsdl::Wsdl,
+        client: &Client,
+    ) -> Result<rpser::Response> {
+        let url = match wsdl.operations.get(&method.name) {
             None => return Err(Error::MethodNotFoundInWsdl(method.name)),
             Some(ref op) => &op.url,
         };
@@ -455,7 +479,7 @@ impl Session {
             trace!("[method xml] {}", envelope);
         }
 
-        let http_response = http::soap_action(url, &method.name, &envelope).await?;
+        let http_response = http::soap_action(url, &method.name, &envelope, client).await?;
 
         trace!("[response xml] {}", http_response.body);
 
