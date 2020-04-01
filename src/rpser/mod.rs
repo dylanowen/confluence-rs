@@ -135,7 +135,7 @@ pub type Result<T> = result::Result<T, RpcError>;
 #[cfg(test)]
 mod test {
     use super::*;
-    use rpser::xml::BuildElement;
+    use crate::rpser::xml::BuildElement;
 
     #[test]
     fn can_deal_with_fault() {

@@ -50,7 +50,7 @@ pub struct Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        self.logout().unwrap();
+        futures::executor::block_on(self.logout()).unwrap();
     }
 }
 
@@ -68,7 +68,7 @@ impl Session {
     ).unwrap();
     ```
     */
-    pub fn login(url: &str, user: &str, pass: &str) -> Result<Session> {
+    pub async fn login(url: &str, user: &str, pass: &str) -> Result<Session> {
         debug!("logging in at url {:?} with user {:?}", url, user);
 
         let url = if url.ends_with('/') {
@@ -80,17 +80,19 @@ impl Session {
 
         debug!("getting wsdl from url {:?}", wsdl_url);
 
-        let wsdl = wsdl::fetch(&wsdl_url)?;
+        let wsdl = wsdl::fetch(&wsdl_url).await?;
         let mut session = Session {
             wsdl,
             token: String::new(),
         };
 
-        let response = session.call(
-            Method::new("login")
-                .with(Element::node("username").with_text(user))
-                .with(Element::node("password").with_text(pass)),
-        )?;
+        let response = session
+            .call(
+                Method::new("login")
+                    .with(Element::node("username").with_text(user))
+                    .with(Element::node("password").with_text(pass)),
+            )
+            .await?;
 
         let token = match response
             .body
@@ -111,10 +113,10 @@ impl Session {
     /// Explicitly log out out of confluence.
     ///
     /// This is done automatically at the end of Session's lifetime.
-    pub fn logout(&self) -> Result<bool> {
-        let response = self.call(
-            Method::new("logout").with(Element::node("token").with_text(self.token.clone())),
-        )?;
+    pub async fn logout(&self) -> Result<bool> {
+        let response = self
+            .call(Method::new("logout").with(Element::node("token").with_text(self.token.clone())))
+            .await?;
 
         Ok(
             match response
@@ -153,12 +155,14 @@ impl Session {
     );
     ```
     */
-    pub fn get_space(&self, space_key: &str) -> Result<Space> {
-        let response = self.call(
-            Method::new("getSpace")
-                .with(Element::node("token").with_text(self.token.clone()))
-                .with(Element::node("spaceKey").with_text(space_key)),
-        )?;
+    pub async fn get_space(&self, space_key: &str) -> Result<Space> {
+        let response = self
+            .call(
+                Method::new("getSpace")
+                    .with(Element::node("token").with_text(self.token.clone()))
+                    .with(Element::node("spaceKey").with_text(space_key)),
+            )
+            .await?;
 
         let element = response.body.descend(&["getSpaceReturn"])?;
 
@@ -179,13 +183,15 @@ impl Session {
     );
     ```
     */
-    pub fn get_page_by_title(&self, space_key: &str, page_title: &str) -> Result<Page> {
-        let response = self.call(
-            Method::new("getPage")
-                .with(Element::node("token").with_text(self.token.clone()))
-                .with(Element::node("spaceKey").with_text(space_key))
-                .with(Element::node("pageTitle").with_text(page_title)),
-        )?;
+    pub async fn get_page_by_title(&self, space_key: &str, page_title: &str) -> Result<Page> {
+        let response = self
+            .call(
+                Method::new("getPage")
+                    .with(Element::node("token").with_text(self.token.clone()))
+                    .with(Element::node("spaceKey").with_text(space_key))
+                    .with(Element::node("pageTitle").with_text(page_title)),
+            )
+            .await?;
 
         let element = response.body.descend(&["getPageReturn"])?;
 
@@ -206,12 +212,14 @@ impl Session {
     );
     ```
     */
-    pub fn get_page_by_id(&self, page_id: i64) -> Result<Page> {
-        let response = self.call(
-            Method::new("getPage")
-                .with(Element::node("token").with_text(self.token.clone()))
-                .with(Element::node("pageId").with_text(page_id.to_string())),
-        )?;
+    pub async fn get_page_by_id(&self, page_id: i64) -> Result<Page> {
+        let response = self
+            .call(
+                Method::new("getPage")
+                    .with(Element::node("token").with_text(self.token.clone()))
+                    .with(Element::node("pageId").with_text(page_id.to_string())),
+            )
+            .await?;
 
         let element = response.body.descend(&["getPageReturn"])?;
 
@@ -280,7 +288,7 @@ impl Session {
     session.store_page(page.into());
     ```
     */
-    pub fn store_page(&self, page: UpdatePage) -> Result<Page> {
+    pub async fn store_page(&self, page: UpdatePage) -> Result<Page> {
         let mut element_items = vec![
             Element::node("space").with_text(page.space),
             Element::node("title").with_text(page.title),
@@ -299,11 +307,13 @@ impl Session {
             element_items.push(Element::node("parentId").with_text(parent_id.to_string()));
         }
 
-        let response = self.call(
-            Method::new("storePage")
-                .with(Element::node("token").with_text(self.token.clone()))
-                .with(Element::node("page").with_children(element_items)),
-        )?;
+        let response = self
+            .call(
+                Method::new("storePage")
+                    .with(Element::node("token").with_text(self.token.clone()))
+                    .with(Element::node("page").with_children(element_items)),
+            )
+            .await?;
 
         let element = response.body.descend(&["storePageReturn"])?;
 
@@ -315,7 +325,7 @@ impl Session {
 
     Same as `store_page`, but with additional update options parameter.
     */
-    pub fn update_page(&self, page: UpdatePage, options: PageUpdateOptions) -> Result<Page> {
+    pub async fn update_page(&self, page: UpdatePage, options: PageUpdateOptions) -> Result<Page> {
         let mut element_items = vec![
             Element::node("space").with_text(page.space),
             Element::node("title").with_text(page.title),
@@ -346,12 +356,14 @@ impl Session {
             "false"
         }));
 
-        let response = self.call(
-            Method::new("updatePage")
-                .with(Element::node("token").with_text(self.token.clone()))
-                .with(Element::node("page").with_children(element_items))
-                .with(Element::node("pageUpdateOptions").with_children(update_options)),
-        )?;
+        let response = self
+            .call(
+                Method::new("updatePage")
+                    .with(Element::node("token").with_text(self.token.clone()))
+                    .with(Element::node("page").with_children(element_items))
+                    .with(Element::node("pageUpdateOptions").with_children(update_options)),
+            )
+            .await?;
 
         let element = response.body.descend(&["updatePageReturn"])?;
 
@@ -372,12 +384,14 @@ impl Session {
     );
     ```
     */
-    pub fn get_children(&self, page_id: i64) -> Result<Vec<PageSummary>> {
-        let response = self.call(
-            Method::new("getChildren")
-                .with(Element::node("token").with_text(self.token.clone()))
-                .with(Element::node("pageId").with_text(page_id.to_string())),
-        )?;
+    pub async fn get_children(&self, page_id: i64) -> Result<Vec<PageSummary>> {
+        let response = self
+            .call(
+                Method::new("getChildren")
+                    .with(Element::node("token").with_text(self.token.clone()))
+                    .with(Element::node("pageId").with_text(page_id.to_string())),
+            )
+            .await?;
 
         let node = response.body.descend(&["getChildrenReturn"])?;
 
@@ -408,7 +422,7 @@ impl Session {
     /// If you need an example, look at how these convenience methods are implemented.
     ///
     /// Pull requests are welcome!
-    pub fn call(&self, method: rpser::Method) -> Result<rpser::Response> {
+    pub async fn call(&self, method: rpser::Method) -> Result<rpser::Response> {
         let url = match self.wsdl.operations.get(&method.name) {
             None => return Err(Error::MethodNotFoundInWsdl(method.name)),
             Some(ref op) => &op.url,
@@ -428,7 +442,7 @@ impl Session {
             trace!("[method xml] {}", envelope);
         }
 
-        let http_response = http::soap_action(url, &method.name, &envelope)?;
+        let http_response = http::soap_action(url, &method.name, &envelope).await?;
 
         trace!("[response xml] {}", http_response.body);
 

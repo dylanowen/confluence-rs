@@ -1,7 +1,7 @@
-use rpser::xml::{BuildElement, EnhancedNode, Error as XMLError};
+use crate::rpser::xml::{BuildElement, EnhancedNode, Error as XMLError};
 use xmltree::XMLNode;
 
-use {Page, PageSummary, Space};
+use crate::{Page, PageSummary, Space};
 
 pub trait FromXMLNode {
     fn from_node(node: XMLNode) -> Result<Self, XMLError>
