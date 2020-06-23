@@ -354,7 +354,10 @@ fn get_typed_string(element: &Element, value_type: &str) -> Result<String, Error
             element.attributes.get("type"),
             element.get_text().map(Cow::into_owned),
         ) {
-            (Some(value), Some(text)) if value.ends_with(value_type) => text,
+            (Some(value), text) if value.ends_with(value_type) => {
+                // if we didn't find any text but our type was still correct just return an empty string
+                text.unwrap_or_else(|| String::new())
+            },
             (other_type, _) => {
                 return Err(Error::ExpectedElementWithType {
                     name: element.name.clone(),
