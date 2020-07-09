@@ -59,12 +59,6 @@ pub struct Session {
     client: Client,
 }
 
-impl Drop for Session {
-    fn drop(&mut self) {
-        futures::executor::block_on(self.internal_logout()).unwrap();
-    }
-}
-
 impl Session {
     /**
     Create new confluence session.
@@ -126,37 +120,27 @@ impl Session {
 
     /// Explicitly log out out of confluence.
     ///
-    /// This is done automatically at the end of Session's lifetime.
+    /// This is NOT done automatically at the end of Session's lifetime.
     pub async fn logout(mut self) -> Result<bool> {
-        // We want to know the result of logging out. However we also want to logout when dropping
-        // our memory AND we want to make Self::logout a dropping operation. To do all of these
-        // things we have to leverage the private method internal_logout which checks whether we've
-        // already logged out before running
-        self.internal_logout().await
-    }
+        let response = self.call(self.method("logout")).await?;
 
-    async fn internal_logout(&mut self) -> Result<bool> {
-        if !self.token.is_empty() {
-            let response = self.call(self.method("logout")).await?;
+        // clear out our token
+        self.token = String::new();
 
-            match response
-                .body
-                .descend(&["logoutReturn"])?
-                .expect_element()?
-                .get_text()
-            {
-                Some(ref v) if v == "true" => {
-                    debug!("logged out successfully");
-                    Ok(true)
-                }
-                _ => {
-                    debug!("log out failed (maybe expired token, maybe not logged in)");
-                    Ok(false)
-                }
+        match response
+            .body
+            .descend(&["logoutReturn"])?
+            .expect_element()?
+            .get_text()
+        {
+            Some(ref v) if v == "true" => {
+                debug!("logged out successfully");
+                Ok(true)
             }
-        } else {
-            // we've already logged out so continue on
-            Ok(false)
+            _ => {
+                debug!("log out failed (maybe expired token, maybe not logged in)");
+                Ok(false)
+            }
         }
     }
 

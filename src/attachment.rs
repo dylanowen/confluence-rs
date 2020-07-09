@@ -32,7 +32,7 @@ impl AttachmentRequest {
     {
         AttachmentRequest {
             file_name: file_name.into(),
-            content_type: content_type.into(),
+            content_type,
             title: title.into(),
             comment: comment.into(),
         }
